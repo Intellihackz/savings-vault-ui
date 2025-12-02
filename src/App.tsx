@@ -31,6 +31,7 @@ const INJECTIVE_EVM_PARAMS = {
 function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
+  const [balance, setBalance] = useState(0);
   const [state, setState] = useState<VaultState>({
     totalBalance: 0.03,
     injBalance: 0,
@@ -44,18 +45,49 @@ function App() {
       alert("MetaMask not installed!");
       return;
     }
+
     const provider = new BrowserProvider(window.ethereum);
+
     try {
-      await window.ethereum.request({
-        method: "wallet_addEthereumChain",
-        params: [INJECTIVE_EVM_PARAMS],
-      });
+      // First, request accounts
       const accounts = await provider.send("eth_requestAccounts", []);
+
+      // Check current chain ID
+      const currentChainId = await window.ethereum.request({
+        method: "eth_chainId",
+      });
+
+      // Only switch/add network if not already on Injective EVM
+      if (currentChainId !== INJECTIVE_EVM_PARAMS.chainId) {
+        try {
+          // Try to switch to the network first
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: INJECTIVE_EVM_PARAMS.chainId }],
+          });
+        } catch (switchError: any) {
+          // If network doesn't exist (error code 4902), add it
+          if (switchError.code === 4902) {
+            await window.ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [INJECTIVE_EVM_PARAMS],
+            });
+          } else {
+            throw switchError;
+          }
+        }
+      }
+
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       const balance = await provider.getBalance(address);
+      const actualbalance = Number(balance) / 10 ** 18;
+
+      setBalance(actualbalance);
       console.log("Balance:", balance);
+      console.log("Actual balance:", actualbalance);
       console.log("Connected address:", address);
+
       return { provider, signer, address };
     } catch (err) {
       console.error("MetaMask connection failed:", err);
@@ -111,7 +143,7 @@ function App() {
           </div>
         ) : (
           <div className="wallet-info" onClick={handleDisconnect}>
-            {truncateAddress(walletAddress)}
+            {balance} inj | {truncateAddress(walletAddress)}
           </div>
         )}
       </div>
