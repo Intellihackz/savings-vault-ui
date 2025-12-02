@@ -1,6 +1,6 @@
 import { useState } from "react";
 import "./App.css";
-import { getInjectiveAddress } from "@injectivelabs/sdk-ts";
+import { BrowserProvider } from "ethers";
 
 interface VaultState {
   totalBalance: number;
@@ -16,6 +16,18 @@ declare global {
   }
 }
 
+const INJECTIVE_EVM_PARAMS = {
+  chainId: "0x59f", // 1439 in hexadecimal
+  chainName: "Injective EVM",
+  rpcUrls: ["https://k8s.testnet.json-rpc.injective.network/"],
+  nativeCurrency: {
+    name: "Injective",
+    symbol: "INJ",
+    decimals: 18,
+  },
+  blockExplorerUrls: ["https://testnet.blockscout.injective.network/blocks"],
+};
+
 function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
@@ -27,26 +39,35 @@ function App() {
     amount: "",
   });
 
-  const getEthereum = () => {
-    if (!window.ethereum) {
-      throw new Error("Metamask extension not installed");
+  const connectMetaMask = async () => {
+    if (typeof window.ethereum === "undefined") {
+      alert("MetaMask not installed!");
+      return;
     }
-    return window.ethereum;
+    const provider = new BrowserProvider(window.ethereum);
+    try {
+      await window.ethereum.request({
+        method: "wallet_addEthereumChain",
+        params: [INJECTIVE_EVM_PARAMS],
+      });
+      const accounts = await provider.send("eth_requestAccounts", []);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      const balance = await provider.getBalance(address);
+      console.log("Balance:", balance);
+      console.log("Connected address:", address);
+      return { provider, signer, address };
+    } catch (err) {
+      console.error("MetaMask connection failed:", err);
+    }
   };
 
   const handleConnect = async () => {
     try {
-      const ethereum = getEthereum();
-      const addresses = await ethereum.request({
-        method: "eth_requestAccounts",
-      });
-
-      const injectiveAddresses = addresses.map(getInjectiveAddress);
-      console.log(injectiveAddresses);
-
-      if (injectiveAddresses.length > 0) {
+      const result = await connectMetaMask();
+      if (result && result.address) {
         setIsConnected(true);
-        setWalletAddress(injectiveAddresses[0]);
+        setWalletAddress(result.address);
       }
     } catch (error) {
       console.error("Failed to connect wallet:", error);
