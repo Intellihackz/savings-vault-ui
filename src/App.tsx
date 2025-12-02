@@ -1,5 +1,6 @@
 import { useState } from "react";
 import "./App.css";
+import { getInjectiveAddress } from "@injectivelabs/sdk-ts";
 
 interface VaultState {
   totalBalance: number;
@@ -7,6 +8,12 @@ interface VaultState {
   winjBalance: number;
   address: string;
   amount: string;
+}
+
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
 }
 
 function App() {
@@ -20,10 +27,33 @@ function App() {
     amount: "",
   });
 
-  const handleConnect = () => {
-    // Simulate wallet connection
-    setIsConnected(true);
-    setWalletAddress("inj1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0");
+  const getEthereum = () => {
+    if (!window.ethereum) {
+      throw new Error("Metamask extension not installed");
+    }
+    return window.ethereum;
+  };
+
+  const handleConnect = async () => {
+    try {
+      const ethereum = getEthereum();
+      const addresses = await ethereum.request({
+        method: "eth_requestAccounts",
+      });
+
+      const injectiveAddresses = addresses.map(getInjectiveAddress);
+      console.log(injectiveAddresses);
+
+      if (injectiveAddresses.length > 0) {
+        setIsConnected(true);
+        setWalletAddress(injectiveAddresses[0]);
+      }
+    } catch (error) {
+      console.error("Failed to connect wallet:", error);
+      alert(
+        error instanceof Error ? error.message : "Failed to connect wallet"
+      );
+    }
   };
 
   const handleDisconnect = () => {
@@ -35,6 +65,7 @@ function App() {
     if (!addr) return "";
     return `${addr.slice(0, 6)}...${addr.slice(-5)}`;
   };
+
   const [activeTab, setActiveTab] = useState<"INJ" | "wINJ">("INJ");
 
   const handleDeposit = () => {
