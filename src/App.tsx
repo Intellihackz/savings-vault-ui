@@ -1,6 +1,6 @@
 import { useState } from "react";
 import "./App.css";
-import { BrowserProvider } from "ethers";
+import { BrowserProvider, formatEther, parseEther } from "ethers";
 
 interface VaultState {
   totalBalance: number;
@@ -16,6 +16,12 @@ declare global {
   }
 }
 
+interface TransactionStatus {
+  type: "success" | "error" | "pending" | null;
+  message: string;
+  txHash?: string;
+}
+
 const INJECTIVE_EVM_PARAMS = {
   chainId: "0x59f", // 1439 in hexadecimal
   chainName: "Injective EVM",
@@ -25,13 +31,18 @@ const INJECTIVE_EVM_PARAMS = {
     symbol: "INJ",
     decimals: 18,
   },
-  blockExplorerUrls: ["https://testnet.blockscout.injective.network/blocks"],
+  blockExplorerUrls: ["https://testnet.blockscout.injective.network/"],
 };
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [walletAddress, setWalletAddress] = useState("");
   const [balance, setBalance] = useState(0);
+   const [isTransferring, setIsTransferring] = useState(false);
+  const [txStatus, setTxStatus] = useState<TransactionStatus>({
+    type: null,
+    message: "",
+  });
   const [state, setState] = useState<VaultState>({
     totalBalance: 0.03,
     injBalance: 0,
@@ -51,7 +62,7 @@ function App() {
     try {
       // First, request accounts
       const accounts = await provider.send("eth_requestAccounts", []);
-
+      console.log("Connected accounts:", accounts);
       // Check current chain ID
       const currentChainId = await window.ethereum.request({
         method: "eth_chainId",
@@ -129,8 +140,70 @@ function App() {
     console.log("Withdraw clicked");
   };
 
-  const handleTransfer = () => {
-    console.log("Transfer:", { address: state.address, amount: state.amount });
+ const handleTransfer = async () => {
+    if (!isConnected) {
+      setTxStatus({ type: "error", message: "Please connect your wallet first" });
+      return;
+    }
+
+    if (!state.address || !state.amount) {
+      setTxStatus({ type: "error", message: "Please enter both address and amount" });
+      return;
+    }
+
+    try {
+      const amount = parseFloat(state.amount);
+      if (isNaN(amount) || amount <= 0) {
+        setTxStatus({ type: "error", message: "Please enter a valid amount" });
+        return;
+      }
+
+      if (amount > balance) {
+        setTxStatus({ type: "error", message: "Insufficient balance" });
+        return;
+      }
+
+      setIsTransferring(true);
+      setTxStatus({ type: "pending", message: "Transaction pending..." });
+
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      console.log("Sending transaction...");
+      const tx = await signer.sendTransaction({
+        to: state.address,
+        value: parseEther(state.amount),
+      });
+
+      console.log("Transaction sent:", tx.hash);
+      setTxStatus({
+        type: "pending",
+        message: "Waiting for confirmation...",
+        txHash: tx.hash,
+      });
+
+      const receipt = await tx.wait();
+      console.log("Transaction confirmed:", receipt);
+
+      setTxStatus({
+        type: "success",
+        message: "Transaction confirmed!",
+        txHash: tx.hash,
+      });
+
+      const newBalance = await provider.getBalance(await signer.getAddress());
+      setBalance(Number(formatEther(newBalance)));
+
+      setState({ ...state, address: "", amount: "" });
+    } catch (error: any) {
+      console.error("Transfer failed:", error);
+      setTxStatus({
+        type: "error",
+        message: error.message || "Transaction failed",
+      });
+    } finally {
+      setIsTransferring(false);
+    }
   };
 
   return (
@@ -202,9 +275,29 @@ function App() {
               <span className="currency-label">{activeTab}</span>
             </div>
 
-            <button className="transfer-button" onClick={handleTransfer}>
-              Transfer
+             <button
+              disabled={isTransferring || !state.address || !state.amount}
+              className="transfer-button"
+              onClick={handleTransfer}
+            >
+              {isTransferring ? "Transferring..." : "Transfer"}
             </button>
+
+            {txStatus.type && (
+              <div className={`tx-status tx-status-${txStatus.type}`}>
+                <p>{txStatus.message}</p>
+                {txStatus.txHash && txStatus.type === "success" && (
+                  <a
+                    href={`${INJECTIVE_EVM_PARAMS.blockExplorerUrls[0]}/tx/${txStatus.txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="tx-link"
+                  >
+                    View on Explorer →
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
